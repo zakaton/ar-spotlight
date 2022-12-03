@@ -1,0 +1,191 @@
+<html>
+  <head>
+    <title>Teachable Machine | AR Spotlight</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+  </head>
+  <body>
+    <h1>Teachable Machine | AR Spotlight</h1>
+    <button
+      id="captureScreenButton"
+      style="display: none"
+      onclick="getScreenCapture()"
+    >
+      capture screen
+    </button>
+    <video id="video" autoplay muted style="display: none"></video>
+    <div id="label-container"></div>
+  </body>
+
+  <script>
+    // SCREEN CAPTURE
+    const video = document.getElementById("video");
+    let captureStream;
+    async function getScreenCapture() {
+      if (captureStream) {
+        return;
+      }
+
+      try {
+        captureStream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: false,
+        });
+      } catch (error) {
+        console.error(`Error: ${error}`);
+      }
+      captureScreenButton.style.display = "none";
+      captureStream.oninactive = () => {
+        captureStream = null;
+        captureScreenButton.style.display = "";
+        video.style.display = "none";
+      };
+      video.srcObject = captureStream;
+      video.play();
+      video.style.display = "";
+    }
+    video.onloadeddata = () => {
+      console.log("loaded data");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      loop();
+    };
+
+    // TEACHABLE MACHINE
+
+    // https://github.com/googlecreativelab/teachablemachine-community/tree/master/libraries/image
+    const URL = "https://teachablemachine.withgoogle.com/models/gw5uG24YH/";
+
+    let model, labelContainer, maxPredictions;
+
+    async function init() {
+      const modelURL = URL + "model.json";
+      const metadataURL = URL + "metadata.json";
+
+      model = await tmImage.load(modelURL, metadataURL);
+      maxPredictions = model.getTotalClasses();
+
+      labelContainer = document.getElementById("label-container");
+      for (let i = 0; i < maxPredictions; i++) {
+        labelContainer.appendChild(document.createElement("div"));
+      }
+
+      console.log("model ready");
+      captureScreenButton.style.display = "";
+      initWebsocket();
+    }
+
+    async function loop() {
+      await predict();
+      window.requestAnimationFrame(loop);
+    }
+
+    let prediction;
+    let mostProbableClass;
+    let highestClassProbability;
+    let shouldSendPredictions = false;
+    async function predict() {
+      prediction = await model.predict(video);
+      highestClassProbability = 0;
+      for (let i = 0; i < maxPredictions; i++) {
+        const { className, probability } = prediction[i];
+        const classPrediction = className + ": " + probability.toFixed(2);
+        labelContainer.childNodes[i].innerHTML = classPrediction;
+        if (probability > highestClassProbability) {
+          highestClassProbability = probability;
+          mostProbableClass = className;
+        }
+      }
+      if (shouldSendPredictions) {
+        sendMessage(
+          Uint8Array.from([MessageTypes.PREDICTION]),
+          textEncoder.encode(JSON.stringify(prediction))
+        );
+      }
+    }
+    init();
+
+    // WEBSOCKETS
+    let ws;
+    function initWebsocket() {
+      ws = new WebSocket("wss://ar-spotlight.glitch.me");
+      console.log(ws);
+      ws.addEventListener("open", () => {
+        console.log("opened websocket connection");
+      });
+      ws.addEventListener("close", () => {
+        console.log("websocket connection closed");
+      });
+      ws.addEventListener("message", async (event) => {
+        const blob = event.data;
+        console.log("websocket message", blob);
+        const arrayBuffer = await blob.arrayBuffer();
+        const dataView = new DataView(arrayBuffer);
+        parseMessage(dataView);
+      });
+    }
+    function isWebsocketConnected() {
+      return ws.readyState == WebSocket.OPEN;
+    }
+    function sendMessage(...message) {
+      if (isWebsocketConnected()) {
+        // console.log("sending message", message);
+        const blob = new Blob(message);
+        ws.send(blob);
+      }
+    }
+    const MessageTypeStrings = ["PREDICTION", "IMAGE"];
+    const MessageTypes = {};
+    MessageTypeStrings.forEach(
+      (string, index) => (MessageTypes[string] = index)
+    );
+
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    function sendPicture() {
+      if (isWebsocketConnected() && mostProbableClass) {
+        ctx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
+        canvas.toBlob((blob) => {
+          sendMessage(
+            Uint8Array.from([MessageTypes.IMAGE]),
+            Uint8Array.from([mostProbableClass.length]),
+            textEncoder.encode(mostProbableClass),
+            blob
+          );
+        });
+      }
+    }
+
+    const textEncoder = new TextEncoder();
+    const textDecoder = new TextDecoder();
+    async function parseMessage(dataView) {
+      //console.log(dataView, dataView.getUint8);
+      let byteOffset = 0;
+      const type = dataView.getUint8(byteOffset++);
+      switch (type) {
+        case MessageTypes.PREDICTION:
+          const predicition = JSON.parse(
+            textDecoder.decode(dataView.buffer.slice(byteOffset))
+          );
+          //console.log("predicition", predicition);
+          break;
+        case MessageTypes.IMAGE:
+          const imageNameLength = dataView.getUint8(byteOffset++);
+          const imageName = textDecoder.decode(
+            dataView.buffer.slice(byteOffset, byteOffset + imageNameLength)
+          );
+          byteOffset += imageNameLength;
+          const imageBlob = new Blob([dataView.buffer.slice(byteOffset)]);
+          const image = new Image();
+          image.dataset.name = imageName;
+          image.src = window.URL.createObjectURL(imageBlob);
+          document.body.appendChild(image);
+          console.log(`received image "${imageName}"`, image);
+          break;
+        default:
+          console.log(`uncaught message type #${type}`);
+          break;
+      }
+    }
+  </script>
+</html>

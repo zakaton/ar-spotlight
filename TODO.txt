@@ -1,0 +1,15 @@
+
+Quest Pro
+  text showing significant prediction
+  use tapstrap to confirm prediction (hides text and ignores classification)
+  search lookup via TapStrap
+
+demo
+  see keys
+  tap to remove text
+  walk around
+  type "keys", showing pics
+  go to keys
+  see random banana
+  shows you where they belong
+  bring them back

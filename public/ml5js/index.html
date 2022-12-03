@@ -1,0 +1,128 @@
+<html>
+  <head>
+    <title>ML5.js | AR Spotlight</title>
+    <script src="https://unpkg.com/ml5@0.12.2/dist/ml5.min.js"></script>
+  </head>
+
+  <body>
+    <h1>ML5.js | AR Spotlight</h1>
+
+    <button
+      id="captureScreenButton"
+      style="display: none"
+      onclick="getScreenCapture()"
+    >
+      capture screen
+    </button>
+    <video id="video" autoplay muted style="display: none"></video>
+    <canvas
+      id="canvas"
+      style="width: 100%; height: 100%; display: none"
+    ></canvas>
+  </body>
+
+  <script>
+    // SCREEN CAPTURE
+    const videoOnly = false;
+    let captureStream;
+    async function getScreenCapture() {
+      if (captureStream) {
+        return;
+      }
+
+      try {
+        captureStream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: false,
+        });
+      } catch (error) {
+        console.error(`Error: ${error}`);
+      }
+      captureScreenButton.style.display = "none";
+      captureStream.oninactive = () => {
+        captureStream = null;
+        captureScreenButton.style.display = "";
+        if (videoOnly) {
+          video.style.display = "none";
+        } else {
+          canvas.style.display = "none";
+        }
+      };
+      video.srcObject = captureStream;
+      video.play();
+      if (videoOnly) {
+        video.style.display = "";
+      } else {
+        canvas.style.display = "";
+      }
+    }
+    video.onloadeddata = () => {
+      console.log("loaded data");
+      if (!videoOnly) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+      }
+
+      detect();
+    };
+
+    // ML5.js
+    let objectDetector;
+    let objects;
+    async function setupObjectDetection() {
+      objectDetector = await ml5.objectDetector("cocossd", onModelLoaded);
+    }
+    function onModelLoaded() {
+      console.log("model ready");
+      captureScreenButton.style.display = "";
+    }
+    function detect() {
+      if (!captureStream) {
+        return;
+      }
+      console.log("detect");
+      objectDetector.detect(video, onObjectDetection);
+    }
+    function onObjectDetection(error, results) {
+      console.log(error, results);
+      if (error) {
+        console.log(error);
+        return;
+      }
+      objects = results;
+
+      if (objects && !videoOnly) {
+        draw();
+      }
+
+      detect();
+    }
+    const canvasContext = canvas.getContext("2d");
+    function draw() {
+      const ctx = canvasContext;
+      const { width, height } = canvas;
+
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, 0, width, height);
+
+      ctx.drawImage(video, 0, 0);
+      for (let i = 0; i < objects.length; i += 1) {
+        ctx.font = "16px Arial";
+        ctx.fillStyle = "green";
+        ctx.fillText(objects[i].label, objects[i].x + 4, objects[i].y + 16);
+
+        ctx.beginPath();
+        ctx.rect(
+          objects[i].x,
+          objects[i].y,
+          objects[i].width,
+          objects[i].height
+        );
+        ctx.strokeStyle = "green";
+        ctx.stroke();
+        ctx.closePath();
+      }
+    }
+    setupObjectDetection();
+  </script>
+</html>

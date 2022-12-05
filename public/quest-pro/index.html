@@ -2,8 +2,11 @@
   <head>
     <title>Quest Pro | AR Spotlight</title>
     <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
+    <script src="/script/aframe/components/detected-planes-component.js"></script>
+    <script src="/script/aframe/components/crawling-cursor-component.js"></script>
+    <script src="/script/aframe/components/super-keyboard-component.js"></script>
   </head>
-  
+
   <style>
     html,
     body {
@@ -26,10 +29,180 @@
   </style>
 
   <body>
-    <a-scene></a-scene>
+    <a-scene
+      webxr="requiredFeatures: plane-detection,local-floor;"
+      detected-planes
+    >
+      <a-assets></a-assets>
+
+      <a-camera
+        raycaster="objects: [data-detected-plane]"
+        cursor="fuse: false;"
+        crawling-cursor="target: #my-cursor"
+      >
+        <a-entity id="prediction" position="0 0 -0.4">
+          <a-entity class="predictionClass" data-prediction-class="keys">
+            <a-text value="keys" color="black" scale="0.2 0.2 0.2" align="right" position="-0.003 0 0"></a-text>
+            <a-entity class="textBackground" scale="2.1 1 1">
+              <a-plane height="0.05" opacity="0.7" width="0.05" color="white" position="-0.025 0 0"></a-plane>
+            </a-entity>
+            <a-entity class="bar" scale="1 1 1">
+              <a-plane height="0.05" width="0.05" color="red" position="0.025 0 0"></a-plane>
+            </a-entity>
+          </a-entity>
+          
+          <a-entity class="predictionClass" data-prediction-class="banana" position="0 -0.05 0">
+            <a-text value="banana" color="black" scale="0.2 0.2 0.2" align="right" position="-0.003 0 0"></a-text>
+            <a-entity class="textBackground" scale="3.2 1 1">
+              <a-plane height="0.05" opacity="0.7" width="0.05" color="white" position="-0.025 0 0"></a-plane>
+            </a-entity>
+            <a-entity class="bar" scale="1 1 1">
+              <a-plane height="0.05" width="0.05" color="yellow" position="0.025 0 0"></a-plane>
+            </a-entity>
+          </a-entity>
+          
+          <a-entity class="predictionClass" data-prediction-class="shoe" position="0 -0.1 0">
+            <a-text value="shoe" color="black" scale="0.2 0.2 0.2" align="right" position="-0.003 0 0"></a-text>
+            <a-entity class="textBackground" scale="2.1 1 1">
+              <a-plane height="0.05" opacity="0.7" width="0.05" color="white" position="-0.025 0 0"></a-plane>
+            </a-entity>
+            <a-entity class="bar" scale="1 1 1">
+              <a-plane height="0.05" width="0.05" color="green" position="0.025 0 0"></a-plane>
+            </a-entity>
+          </a-entity>
+        </a-entity>
+      </a-camera>
+      <a-ring
+        id="my-cursor"
+        color="green"
+        radius-inner="0.085"
+        radius-outer="0.1"
+      ></a-ring>
+      
+      <a-entity visible="false" oculus-touch-controls="hand: right"></a-entity>
+
+      <a-entity visible="false" id="hand" laser-controls="hand: right"></a-entity>
+      <a-entity
+        id="keyboard"
+        super-keyboard="show: false; hand: #hand; imagePath:https://cdn.glitch.global/372f9793-1766-4afd-92de-ca537425d179/sk-basic.png?v=1670190758389"
+        position="0 1.076 -0.5"
+        rotation="-30 0 0"
+      ></a-entity>
+    </a-scene>
   </body>
 
   <script>
-    // FILL - get screen recording
+    const scene = document.querySelector("a-scene");
+    const assets = scene.querySelector("a-assets");
+    const predictionEntity = document.getElementById("prediction")
+    const predictionClassEntities = Array.from(predictionEntity.querySelectorAll("[data-prediction-class]"));
+    const predictionClassBars = {};
+    predictionClassEntities.map(entity => predictionClassBars[entity.dataset.predictionClass] = entity.querySelector(".bar"))
+
+    // WEBSOCKETS
+    let ws;
+    function initWebsocket() {
+      ws = new WebSocket("wss://ar-spotlight.glitch.me");
+      console.log(ws);
+      ws.addEventListener("open", () => {
+        console.log("opened websocket connection");
+      });
+      ws.addEventListener("close", () => {
+        console.log("websocket connection closed");
+        setTimeout(() => {
+          initWebsocket();
+        }, 1000);
+      });
+      ws.addEventListener("message", async (event) => {
+        const blob = event.data;
+        console.log("websocket message", blob);
+        const arrayBuffer = await blob.arrayBuffer();
+        const dataView = new DataView(arrayBuffer);
+        parseMessage(dataView);
+      });
+    }
+    function isWebsocketConnected() {
+      return ws.readyState == WebSocket.OPEN;
+    }
+    function sendMessage(...message) {
+      if (isWebsocketConnected()) {
+        // console.log("sending message", message);
+        const blob = new Blob(message);
+        ws.send(blob);
+      }
+    }
+    const MessageTypeStrings = ["PREDICTION", "IMAGE"];
+    const MessageTypes = {};
+    MessageTypeStrings.forEach(
+      (string, index) => (MessageTypes[string] = index)
+    );
+
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+
+    const textDecoder = new TextDecoder();
+    async function parseMessage(dataView) {
+      //console.log(dataView, dataView.getUint8);
+      let byteOffset = 0;
+      const type = dataView.getUint8(byteOffset++);
+      switch (type) {
+        case MessageTypes.PREDICTION:
+          const predicition = JSON.parse(
+            textDecoder.decode(dataView.buffer.slice(byteOffset))
+          );
+          console.log("predicition", predicition);
+          predicition.forEach(({className, probability}) => {
+            const entity = predictionClassBars[className];
+            entity.object3D.scale.x = probability * 5
+          })
+          break;
+        case MessageTypes.IMAGE:
+          const imageNameLength = dataView.getUint8(byteOffset++);
+          const imageName = textDecoder.decode(
+            dataView.buffer.slice(byteOffset, byteOffset + imageNameLength)
+          );
+          byteOffset += imageNameLength;
+          const imageBlob = new Blob([dataView.buffer.slice(byteOffset)]);
+
+          const imageAssetName = `${imageName}Asset`;
+          let image = assets.querySelector(`img#${imageAssetName}`);
+          if (!image) {
+            image = new Image();
+            image.id = imageAssetName;
+            assets.appendChild(image);
+          }
+          image.src = window.URL.createObjectURL(imageBlob);
+
+          const imageEntityName = `${imageName}Image`;
+          let imageEntity = scene.querySelector(`#${imageEntityName}`);
+          if (!imageEntity) {
+            imageEntity = document.createElement("a-image");
+            imageEntity.id = imageEntityName;
+            imageEntity.setAttribute("src", `#${imageAssetName}`);
+            imageEntity.setAttribute("position", "0 1.6 -1");
+            scene.appendChild(imageEntity);
+          }
+
+          const updateImageEntity = () => {
+            const ratio = image.height / image.width;
+            imageEntity.setAttribute("height", ratio);
+          };
+          if (image.complete) {
+            updateImageEntity();
+          } else {
+            image.addEventListener("load", () => {
+              updateImageEntity();
+            });
+          }
+
+          console.log(`received image "${imageName}"`, image, imageEntity);
+          break;
+        default:
+          console.log(`uncaught message type #${type}`);
+          break;
+      }
+    }
+
+    initWebsocket();
   </script>
 </html>

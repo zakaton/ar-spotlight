@@ -19,6 +19,7 @@
 
   <script>
     // SCREEN CAPTURE
+    let shouldCropSquare = true;
     const video = document.getElementById("video");
     let captureStream;
     async function getScreenCapture() {
@@ -45,9 +46,16 @@
       video.style.display = "";
     }
     video.onloadeddata = () => {
-      console.log("loaded data");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+      console.log("loaded video data");
+      if (shouldCropSquare) {
+        const length = Math.max(video.videoWidth, video.videoHeight);
+        canvas.width = length;
+        canvas.height = length;
+      } else {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+      }
+
       loop();
     };
 
@@ -81,7 +89,7 @@
     }
 
     let prediction;
-    let mostProbableClass;
+    let mostProbableClass = "unknown";
     let highestClassProbability;
     let shouldSendPredictions = false;
     async function predict() {
@@ -115,6 +123,9 @@
       });
       ws.addEventListener("close", () => {
         console.log("websocket connection closed");
+        setTimeout(() => {
+          initWebsocket();
+        }, 1000);
       });
       ws.addEventListener("message", async (event) => {
         const blob = event.data;
@@ -142,17 +153,32 @@
 
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
-    function sendPicture() {
+    async function sendPicture() {
       if (isWebsocketConnected() && mostProbableClass) {
-        ctx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
-        canvas.toBlob((blob) => {
-          sendMessage(
-            Uint8Array.from([MessageTypes.IMAGE]),
-            Uint8Array.from([mostProbableClass.length]),
-            textEncoder.encode(mostProbableClass),
-            blob
-          );
-        });
+        if (shouldCropSquare) {
+          const length = Math.min(video.videoWidth, video.videoHeight);
+          let x = 0;
+          let y = 0;
+          if (video.videoWidth > video.videoHeight) {
+            x = (video.videoWidth - video.videoHeight) / 2;
+          }
+          else {
+            y = (video.videoHeight - video.videoWidth) / 2;
+          }
+          console.log(canvas.width, canvas.height, length)
+          ctx.drawImage(video, x, y, length, length, 0, 0, canvas.width, canvas.height);
+        } else {
+          ctx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
+        }
+        console.log("creating blob...");
+        const blob = await canvas.convertToBlob();
+        console.log("blob", blob);
+        sendMessage(
+          Uint8Array.from([MessageTypes.IMAGE]),
+          Uint8Array.from([mostProbableClass.length]),
+          textEncoder.encode(mostProbableClass),
+          blob
+        );
       }
     }
 

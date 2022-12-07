@@ -1,10 +1,4 @@
-button to toggle ML results (B)
-button to toggle top ML result (just large text) (B)
-button to toggle "setup" (shows cursor and matches with top ML result, saving position and snapshot) (Y)
-button to toggle AR text lookup (A)
-enter on keyboard shows picture and position of object
-button to toggle cursor (X)
-button with cursor to show where object belongs (Y)
+create model
 
 demo
   see keys

@@ -62,7 +62,7 @@
     // TEACHABLE MACHINE
 
     // https://github.com/googlecreativelab/teachablemachine-community/tree/master/libraries/image
-    const URL = "https://teachablemachine.withgoogle.com/models/gw5uG24YH/";
+    const URL = "https://teachablemachine.withgoogle.com/models/Ar7ovBRwg/";
 
     let model, labelContainer, maxPredictions;
 
@@ -91,7 +91,7 @@
     let prediction;
     let mostProbableClass = "unknown";
     let highestClassProbability;
-    let shouldSendPredictions = false;
+    let shouldSendPredictions = true;
     async function predict() {
       prediction = await model.predict(video);
       highestClassProbability = 0;
@@ -145,7 +145,7 @@
         ws.send(blob);
       }
     }
-    const MessageTypeStrings = ["PREDICTION", "IMAGE"];
+    const MessageTypeStrings = ["PREDICTION", "PICTURE", "SHOULD_SEND_PREDICTION"];
     const MessageTypes = {};
     MessageTypeStrings.forEach(
       (string, index) => (MessageTypes[string] = index)
@@ -165,7 +165,6 @@
           else {
             y = (video.videoHeight - video.videoWidth) / 2;
           }
-          console.log(canvas.width, canvas.height, length)
           ctx.drawImage(video, x, y, length, length, 0, 0, canvas.width, canvas.height);
         } else {
           ctx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
@@ -174,7 +173,7 @@
         const blob = await canvas.convertToBlob();
         console.log("blob", blob);
         sendMessage(
-          Uint8Array.from([MessageTypes.IMAGE]),
+          Uint8Array.from([MessageTypes.PICTURE]),
           Uint8Array.from([mostProbableClass.length]),
           textEncoder.encode(mostProbableClass),
           blob
@@ -195,18 +194,16 @@
           );
           //console.log("predicition", predicition);
           break;
-        case MessageTypes.IMAGE:
+        case MessageTypes.PICTURE:
           const imageNameLength = dataView.getUint8(byteOffset++);
           const imageName = textDecoder.decode(
             dataView.buffer.slice(byteOffset, byteOffset + imageNameLength)
           );
           byteOffset += imageNameLength;
-          const imageBlob = new Blob([dataView.buffer.slice(byteOffset)]);
-          const image = new Image();
-          image.dataset.name = imageName;
-          image.src = window.URL.createObjectURL(imageBlob);
-          document.body.appendChild(image);
-          console.log(`received image "${imageName}"`, image);
+          sendPicture();
+          break;
+          case MessageTypes.SHOULD_SEND_PREDICTION:
+          shouldSendPredictions = dataView.getUint8(byteOffset++);
           break;
         default:
           console.log(`uncaught message type #${type}`);

@@ -20,6 +20,7 @@ AFRAME.registerSystem("detected-planes", {
       const { detectedPlanes } = this.frame;
       if (!this.detectedPlanes && detectedPlanes.size > 0) {
         this.detectedPlanes = detectedPlanes;
+        console.log("detectedPlanes", detectedPlanes)
         this.setupPlanes();
       }
     }
@@ -68,6 +69,7 @@ AFRAME.registerSystem("detected-planes", {
         planeEntity.object3D.quaternion.copy(planePose.transform.orientation);
         planeEntity.object3D.quaternion.multiply(correctionQuaternion);
         planeEntity.dataset.detectedPlane = '';
+        planeEntity.setAttribute("visible", "false")
         planeEntity.classList.add("allow-ray")
         this.sceneEl.appendChild(planeEntity);
         this.detectedPlaneEntities.push(planeEntity)
